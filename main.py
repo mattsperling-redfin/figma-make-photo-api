@@ -22,21 +22,17 @@ class AutoSegmentRequest(BaseModel):
     image_url: str
 
 def get_polygon_from_mask_url(url):
-    """Downloads a PNG mask and extracts vector coordinates (polygons)"""
     resp = requests.get(url)
     nparr = np.frombuffer(resp.content, np.uint8)
-    # Decode the mask as a grayscale image
     mask_img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
     
-    # Extract only the external boundary of the shape
-    contours, _ = cv2.find_contours(mask_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # FIXED: Changed find_contours to findContours
+    contours, _ = cv2.findContours(mask_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     polygons = []
     for cnt in contours:
-        # approxPolyDP simplifies the path so it's not thousands of points long
         epsilon = 0.002 * cv2.arcLength(cnt, True)
         approx = cv2.approxPolyDP(cnt, epsilon, True)
-        # Reshape to a simple list of coordinates: [[x,y], [x,y]...]
         points = approx.reshape(-1, 2).tolist()
         polygons.append(points)
     return polygons
