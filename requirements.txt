@@ -2,3 +2,6 @@ fastapi
 uvicorn
 fal-client
 pydantic
+opencv-python-headless
+numpy
+requests

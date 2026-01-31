@@ -1,16 +1,17 @@
+import os
+import cv2
+import numpy as np
+import requests
+import fal_client
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import fal_client
-import os
 
 app = FastAPI()
 
-# Enable CORS for Figma
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -18,36 +19,48 @@ app.add_middleware(
 class AutoSegmentRequest(BaseModel):
     image_url: str
 
-@app.post("/segment")
-async def auto_segment(request: AutoSegmentRequest):
-    print(f"🚀 Starting segmentation for: {request.image_url}")
+def get_polygon_from_mask_url(url):
+    # Download the PNG mask
+    resp = requests.get(url)
+    nparr = np.frombuffer(resp.content, np.uint8)
+    mask_img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
     
-    try:
-        # Standard SAM 2 Auto-Segment Endpoint
-        result = fal_client.subscribe(
-            "fal-ai/sam2/auto-segment",
-            arguments={"image_url": request.image_url}
-        )
-        
-        # LOGGING: This helps you see the actual structure in Railway logs
-        print(f"DEBUG: Full Fal Result keys: {result.keys()}")
+    # Find contours (the outline of the mask)
+    contours, _ = cv2.find_contours(mask_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    polygons = []
+    for cnt in contours:
+        # Simplify the polygon to keep the JSON small
+        epsilon = 0.002 * cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, epsilon, True)
+        # Convert to a flat list of [x, y, x, y...]
+        points = approx.reshape(-1, 2).tolist()
+        polygons.append(points)
+    return polygons
 
-        # Fal usually returns 'individual_masks' for the array of objects
-        # We check multiple keys just in case the API updates
-        masks_data = result.get("individual_masks") or result.get("masks") or result.get("segments") or []
-        
-        # If it's still empty, it might be a 'combined_mask' only, 
-        # but auto-segment should provide the list.
-        if not masks_data:
-            print("⚠️ No individual masks found in response.")
+@app.post("/segment")
+async def segment_to_svg(request: AutoSegmentRequest):
+    print(f"Segmenting: {request.image_url}")
+    
+    # 1. Get PNG masks from SAM 2
+    result = fal_client.subscribe(
+        "fal-ai/sam2/auto-segment",
+        arguments={"image_url": request.image_url}
+    )
+    
+    # 2. Convert PNGs to Polygons
+    individual_masks = result.get("individual_masks", [])
+    svg_data = []
+    
+    for idx, mask_obj in enumerate(individual_masks):
+        mask_url = mask_obj.get("url")
+        try:
+            poly_points = get_polygon_from_mask_url(mask_url)
+            svg_data.append({
+                "id": f"obj_{idx}",
+                "points": poly_points
+            })
+        except Exception as e:
+            print(f"Error processing mask {idx}: {e}")
 
-        return {"masks": masks_data}
-
-    except Exception as e:
-        print(f"❌ Error: {str(e)}")
-        return {"masks": [], "error": str(e)}
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    return {"masks": svg_data}
