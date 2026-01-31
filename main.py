@@ -7,7 +7,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Keep as * during testing
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -17,7 +17,7 @@ class AutoSegmentRequest(BaseModel):
 
 @app.post("/segment")
 async def auto_segment(request: AutoSegmentRequest):
-    # Updated to use the auto-segment model
+    # Calling the auto-segment model
     result = fal_client.subscribe(
         "fal-ai/sam2/auto-segment",
         arguments={
@@ -25,5 +25,7 @@ async def auto_segment(request: AutoSegmentRequest):
         }
     )
     
-    # fal-ai/sam2/auto-segment returns a 'combined_mask' image
-    return {"mask_url": result['combined_mask']['url']}
+    # We want to return the 'masks' array. 
+    # Each mask contains a 'data' field or 'polygon' field depending on the model version.
+    # For Figma, we will pass the list of mask objects.
+    return {"masks": result.get("masks", [])}
