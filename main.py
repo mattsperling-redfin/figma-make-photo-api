@@ -5,28 +5,25 @@ import fal_client
 
 app = FastAPI()
 
-# CRITICAL: This allows your Figma site to talk to this Python server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://desk-lively-90397360.figma.site"], # In production, replace "*" with your figma.site URL
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class SegmentRequest(BaseModel):
+class AutoSegmentRequest(BaseModel):
     image_url: str
-    x: int
-    y: int
 
 @app.post("/segment")
-async def segment(request: SegmentRequest):
-    # This calls the Fal SAM2 model
-    handler = fal_client.submit(
-        "fal-ai/sam2/image",
+async def auto_segment(request: AutoSegmentRequest):
+    # Updated to use the auto-segment model
+    result = fal_client.subscribe(
+        "fal-ai/sam2/auto-segment",
         arguments={
             "image_url": request.image_url,
-            "prompts": [{"x": request.x, "y": request.y, "label": 1}]
         }
     )
-    result = handler.get()
-    return {"mask_url": result['image']['url']}
+    
+    # fal-ai/sam2/auto-segment returns a 'combined_mask' image
+    return {"mask_url": result['combined_mask']['url']}
